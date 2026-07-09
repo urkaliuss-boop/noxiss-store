@@ -1,4 +1,3 @@
-cat > app/api/orders/route.ts <<'EOF'
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuth } from '@/lib/telegram'
@@ -76,4 +75,3 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: message }, { status: 400 })
   }
 }
-EOF
