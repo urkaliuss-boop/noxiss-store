@@ -1,4 +1,3 @@
-cat > app/api/cryptopay/webhook/route.ts <<'EOF'
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { verifyCryptoWebhook } from '@/lib/crypto-pay'
@@ -65,4 +64,3 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'invalid event' }, { status: 400 })
   }
 }
-EOF
