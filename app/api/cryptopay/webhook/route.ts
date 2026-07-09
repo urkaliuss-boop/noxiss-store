@@ -1,4 +1,68 @@
-import {NextResponse} from 'next/server'
-import {db} from '@/lib/db'
-import {verifyCryptoWebhook} from '@/lib/crypto-pay'
-export async function POST(req:Request){const body=await req.text();if(!verifyCryptoWebhook(body,req.headers.get('crypto-pay-api-signature')))return NextResponse.json({error:'bad signature'},{status:401});try{const event=JSON.parse(body);if(event.update_type!=='invoice_paid')return NextResponse.json({ok:true});const id=event.payload.invoice_id,sql=db();await sql.transaction(async tx=>{const rows=await tx`SELECT * FROM invoices WHERE provider_id=${id} FOR UPDATE`;const inv=rows[0];if(!inv||inv.status==='paid')return;await tx`UPDATE invoices SET status='paid' WHERE id=${inv.id}`;await tx`UPDATE users SET balance=balance+${inv.amount} WHERE telegram_id=${inv.telegram_id}`;await tx`INSERT INTO balance_log(telegram_id,amount,reason) VALUES(${inv.telegram_id},${inv.amount},'Crypto Pay deposit')`});return NextResponse.json({ok:true})}catch{return NextResponse.json({error:'invalid event'},{status:400})}}
+cat > app/api/cryptopay/webhook/route.ts <<'EOF'
+import { NextResponse } from 'next/server'
+import { db } from '@/lib/db'
+import { verifyCryptoWebhook } from '@/lib/crypto-pay'
+
+export async function POST(req: Request) {
+  const body = await req.text()
+
+  if (!verifyCryptoWebhook(body, req.headers.get('crypto-pay-api-signature'))) {
+    return NextResponse.json({ error: 'bad signature' }, { status: 401 })
+  }
+
+  try {
+    const event = JSON.parse(body)
+
+    if (event.update_type !== 'invoice_paid') {
+      return NextResponse.json({ ok: true })
+    }
+
+    const providerId = Number(event.payload.invoice_id)
+    const sql = db()
+
+    const invoices = await sql`
+      SELECT *
+      FROM invoices
+      WHERE provider_id = ${providerId}
+    `
+
+    const invoice = invoices[0]
+
+    if (!invoice || invoice.status === 'paid') {
+      return NextResponse.json({ ok: true })
+    }
+
+    const marked = await sql`
+      UPDATE invoices
+      SET status = 'paid'
+      WHERE id = ${invoice.id}
+        AND status <> 'paid'
+      RETURNING id
+    `
+
+    if (!marked[0]) {
+      return NextResponse.json({ ok: true })
+    }
+
+    await sql.transaction([
+      sql`
+        UPDATE users
+        SET balance = balance + ${invoice.amount}
+        WHERE telegram_id = ${invoice.telegram_id}
+      `,
+      sql`
+        INSERT INTO balance_log (telegram_id, amount, reason)
+        VALUES (
+          ${invoice.telegram_id},
+          ${invoice.amount},
+          'Crypto Pay deposit'
+        )
+      `,
+    ])
+
+    return NextResponse.json({ ok: true })
+  } catch {
+    return NextResponse.json({ error: 'invalid event' }, { status: 400 })
+  }
+}
+EOF
